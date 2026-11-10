@@ -46,6 +46,8 @@ typedef struct game {
 
 
 
-void game_init(Game * game, Config *cfg);
+void game_init(Game * game,const Config *cfg);
+
+void print_board(Game *game);
 
 #endif

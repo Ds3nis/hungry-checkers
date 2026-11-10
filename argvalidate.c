@@ -85,7 +85,8 @@ int validate_size(const char *arg, Config *cfg) {
         return 2;
     }
 
-    cfg->size_set = (int) size;
+    cfg->size = (int) size;
+    cfg->size_set = 1;
     return 0;
 }
 
