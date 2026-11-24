@@ -332,6 +332,59 @@ void apply_move(Position *pos,const Move *move) {
     }
 }
 
+/**
+ * Určí stav hry z pozice a počtu legálních tahů hráče na tahu.
+ * Po provedeném tahu je na tahu právě ten hráč, kterého se kontrola týká
+ * (pos->to_move). Pořadí kontrol odpovídá pořadí v zadání (kapitola
+ * "Konec hry"): hráč bez kamenů, hráč bez legálního tahu, remíza.
+ * Funkci je vhodné volat tam, kde už seznam tahů existuje (např. v Minimaxu),
+ * aby se tahy negenerovaly dvakrát.
+ * @param pos pozice po provedeném tahu
+ * @param legal_moves počet legálních tahů hráče na tahu
+ * @return GAME_RUNNING, GAME_WHITE_WINS, GAME_BLACK_WINS nebo GAME_DRAW
+ */
+GameStatus status_from_move_count(const Position *pos, int legal_moves) {
+    /* Kdo nemá kameny, vyhrává (je to "žravá" dáma). */
+    if (pos->count[WHITE] == 0) {
+        return GAME_WHITE_WINS;
+    }
+    if (pos->count[BLACK] == 0) {
+        return GAME_BLACK_WINS;
+    }
+
+    /* Kdo je na tahu a nemá legální tah, vyhrává. */
+    if (legal_moves == 0) {
+        return (pos->to_move == WHITE) ? GAME_WHITE_WINS : GAME_BLACK_WINS;
+    }
+
+    /* Limit tahů bez pokroku X = 2 * N^2. */
+    if (pos->no_progress >= 2 * pos->size * pos->size) {
+        return GAME_DRAW;
+    }
+
+    return GAME_RUNNING;
+}
+
+/**
+ * Určí stav hry z pozice (sama vygeneruje tahy hráče na tahu).
+ * @param pos pozice po provedeném tahu
+ * @return stav hry (viz status_from_move_count)
+ */
+GameStatus position_status(const Position *pos) {
+    MoveList moves;
+
+    gen_moves(pos, &moves);
+    return status_from_move_count(pos, moves.count);
+}
+
+/**
+ * Aktualizuje stav rozehrané hry podle aktuální pozice.
+ * @param game hra
+ */
+void check_game_status(Game *game) {
+    game->status = position_status(&game->position);
+}
+
 void print_board(Game *game) {
     int row, col, i;
     int board_size = game->position.size;
