@@ -18,6 +18,7 @@ int main(int argc, char *argv[]) {
     Game game;
     game_init(&game, &cfg);
     print_board(&game);
+    game_run(&game);
     
     return EXIT_SUCCESS;
 }

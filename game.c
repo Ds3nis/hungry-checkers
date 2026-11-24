@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "game.h"
+#include <assert.h>
 
 
 void position_init(Position *pos, int size){
@@ -53,9 +54,7 @@ void game_init(Game * game,const Config *cfg) {
     //     }    
     // }
 
-    Position position;
-    position_init(&position, cfg->size);
-    game->position = position;
+    position_init(&game->position, cfg->size);
     game->players[WHITE] = cfg->white;
     game->players[BLACK] = cfg->black;
     game->status = GAME_RUNNING;
@@ -92,7 +91,217 @@ void set_symbol(int cell, char *piece) {
     }
 }
 
-void print_board(Game *game){
+void game_run(Game *game) {
+
+    while (game->status == GAME_RUNNING)
+    {
+        
+    }
+
+}
+
+int in_board(int row, int col, int size) {
+    return row >= 0 && row < size && col >= 0 && col < size;
+}
+
+int is_king(Cell cell) {
+    return cell == CELL_WHITE_KING || cell == CELL_BLACK_KING;
+}
+
+int cell_belongs_to_color(Cell cell, Color color) {
+    if (color == WHITE) {
+        return cell == CELL_WHITE_MAN || cell == CELL_WHITE_KING;
+    }
+    return cell == CELL_BLACK_MAN || cell == CELL_BLACK_KING;
+}
+
+int is_enemy(Cell cell, Color color) {
+    Color opponent = (color == WHITE) ? BLACK : WHITE;
+
+    return cell_belongs_to_color(cell, opponent);
+}
+
+Move make_move(int fr, int fc, int tr, int tc, int cr, int cc) {
+    Move move;
+
+    move.fr = fr;
+    move.fc = fc;
+    move.tr = tr;
+    move.tc = tc;
+    move.cr = cr;
+    move.cc = cc;
+    return move;
+}
+
+void movelist_add(MoveList *list, Move move, MoveKind kind) {
+    if (kind < list->kind) {
+        return;
+    }
+    if (kind > list->kind) {
+        list->kind = kind;
+        list->count = 0;
+    }
+    assert(list->count < MAX_MOVES);
+    list->moves[list->count] = move;
+    list->count++;
+}
+
+/** Obrátí pořadí tahů v seznamu. */
+static void movelist_reverse(MoveList *list) {
+    int i;
+    int j;
+    Move tmp;
+
+    for (i = 0, j = list->count - 1; i < j; i++, j--) {
+        tmp = list->moves[i];
+        list->moves[i] = list->moves[j];
+        list->moves[j] = tmp;
+    }
+}
+
+/**
+ * Přidá tahy obyčejného kamene na poli (row, col): přesun o jedno pole
+ * diagonálně vpřed a braní skokem přes soupeřův kámen.
+ * Směry se procházejí od "nahoře vlevo", takže cíle vznikají vzestupně
+ * podle (řádek, sloupec), jak vyžaduje základní pořadí pro bílé.
+ */
+static void gen_man_moves(const Position *pos, int row, int col, MoveList *list) {
+    int forward = (pos->to_move == WHITE) ? -1 : 1;
+    int dr, dc, nr, nc, lr, lc;
+
+    for (dr = -1; dr <= 1; dr += 2) {
+        for (dc = -1; dc <= 1; dc += 2) {
+            nr = row + dr;
+            nc = col + dc;
+
+            /* Přesun bez braní je možný jen vpřed. */
+            if (dr == forward && in_board(nr, nc, pos->size)
+                && pos->cells[nr][nc] == CELL_EMPTY) {
+                movelist_add(list, make_move(row, col, nr, nc, -1, -1), MOVE_QUIET);
+            }
+
+            /* Braní: soupeřův kámen vedle, za ním volné pole. */
+            if (dr == forward || MAN_CAPTURES_BACKWARD) {
+                lr = row + 2 * dr;
+                lc = col + 2 * dc;
+                if (in_board(lr, lc, pos->size)
+                    && is_enemy(pos->cells[nr][nc], pos->to_move)
+                    && pos->cells[lr][lc] == CELL_EMPTY) {
+                    movelist_add(list, make_move(row, col, lr, lc, nr, nc),
+                                 MOVE_MAN_CAPTURE);
+                }
+            }
+        }
+    }
+}
+
+
+static int cmp_king_moves(const void *m1, const void *m2) {
+    const Move *a = (const Move *)m1;
+    const Move *b = (const Move *)m2;
+
+    if (a->tr != b->tr) {
+        return a->tr - b->tr;
+    }
+
+    return a->tc - b->tc;
+}
+
+void sort_king_moves(Move *quiet_mv, int qm, Move *capture_mv, int cm) {
+    qsort(quiet_mv, qm, sizeof(Move), cmp_king_moves);
+    qsort(capture_mv, cm, sizeof(Move), cmp_king_moves);
+}
+
+static void scan_direction(const Position *pos, int row, int col, int dr, int dc, MoveBuf *quiet, MoveBuf *captures) {
+    int k, k1, nr, nc, lr, lc;
+
+    for (k = 1; k < pos->size; k++) {
+                nr = row + k * dr;
+                nc = col + k * dc;
+
+                if (!in_board(nr, nc, pos->size) || cell_belongs_to_color(pos->cells[nr][nc], pos->to_move)) {
+                    break;
+                }
+
+                if (pos->cells[nr][nc] == CELL_EMPTY) {
+                    quiet->moves[quiet->count++] = make_move(row, col, nr, nc, -1, -1);
+                }
+        
+                if (is_enemy(pos->cells[nr][nc], pos->to_move)) {
+                    for (k1 = k + 1; k1 < pos->size; k1++) {
+                        lr = row + k1 * dr;
+                        lc = col + k1 * dc;
+                        if (!in_board(lr, lc, pos->size) || pos->cells[lr][lc] != CELL_EMPTY) {
+                            break;
+                        }
+                        captures->moves[captures->count++] = make_move(row, col, lr, lc, nr, nc);
+                    }
+                    break;
+                }        
+    } 
+}
+
+
+/**
+ * Přidá tahy dámy na poli (row, col).
+ * TODO: doplnit (přesuny i braní; braní přidávejte s MOVE_KING_CAPTURE;
+ * cíle jedné dámy musí vznikat vzestupně podle (řádek, sloupec)).
+ */
+static void gen_king_moves(const Position *pos, int row, int col, MoveList *list) {
+    int dc, dr, nr, nc, k, lr, lc, k1, i;
+    int was_enemy = 0;
+    int qm = 0;
+    int cm = 0;
+    MoveBuf quiet_moves;
+    MoveBuf capture_moves;
+    
+    for (dr = -1; dr <= 1; dr+=2) {
+        for (dc = -1; dc <= 1; dc+=2) {       
+            scan_direction(pos, row, col, dr, dc, &quiet_moves, &capture_moves);    
+        }
+    }
+
+    sort_king_moves(quiet_moves, qm, capture_moves, cm);
+    for (i = 0; i < qm; i++) {
+        movelist_add(list, quiet_moves[i], MOVE_QUIET);
+    }
+
+    for (i = 0; i < cm; i++) {
+        movelist_add(list, capture_moves[i], MOVE_KING_CAPTURE);
+    }
+
+}
+
+void gen_moves(const Position *pos, MoveList *list) {
+    int row;
+    int col;
+    Cell cell;
+
+    list->count = 0;
+    list->kind = MOVE_QUIET;
+
+    /* Vždy generujeme v pořadí pro bílé: shora dolů, zleva doprava. */
+    for (row = 0; row < pos->size; row++) {
+        for (col = 0; col < pos->size; col++) {
+            cell = pos->cells[row][col];
+            if (cell_belongs_to_color(cell, pos->to_move)) {
+                if (is_king(cell)) {
+                    gen_king_moves(pos, row, col, list);
+                } else {
+                    gen_man_moves(pos, row, col, list);
+                }
+            }
+        }
+    }
+
+    /* Pořadí pro černé je přesně opačné než pro bílé. */
+    if (pos->to_move == BLACK) {
+        movelist_reverse(list);
+    }
+}
+    
+
+void print_board(Game *game) {
     int row, col, i;
     int board_size = game->position.size;
     char piece;
