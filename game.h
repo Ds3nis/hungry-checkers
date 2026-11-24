@@ -129,5 +129,6 @@ void gen_moves(const Position *pos, MoveList *list);
 
 void print_board(Game *game);
 
+void apply_move(Position *pos,const Move *move);
 
 #endif

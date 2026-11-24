@@ -248,10 +248,7 @@ static void scan_direction(const Position *pos, int row, int col, int dr, int dc
  * cíle jedné dámy musí vznikat vzestupně podle (řádek, sloupec)).
  */
 static void gen_king_moves(const Position *pos, int row, int col, MoveList *list) {
-    int dc, dr, nr, nc, k, lr, lc, k1, i;
-    int was_enemy = 0;
-    int qm = 0;
-    int cm = 0;
+    int dc, dr, i;
     MoveBuf quiet_moves;
     MoveBuf capture_moves;
     
@@ -261,13 +258,13 @@ static void gen_king_moves(const Position *pos, int row, int col, MoveList *list
         }
     }
 
-    sort_king_moves(quiet_moves, qm, capture_moves, cm);
-    for (i = 0; i < qm; i++) {
-        movelist_add(list, quiet_moves[i], MOVE_QUIET);
+    sort_king_moves(quiet_moves.moves, quiet_moves.count, capture_moves.moves, capture_moves.count);
+    for (i = 0; i < quiet_moves.count; i++) {
+        movelist_add(list, quiet_moves.moves[i], MOVE_QUIET);
     }
 
-    for (i = 0; i < cm; i++) {
-        movelist_add(list, capture_moves[i], MOVE_KING_CAPTURE);
+    for (i = 0; i < capture_moves.count; i++) {
+        movelist_add(list, capture_moves.moves[i], MOVE_KING_CAPTURE);
     }
 
 }
@@ -299,7 +296,41 @@ void gen_moves(const Position *pos, MoveList *list) {
         movelist_reverse(list);
     }
 }
-    
+
+int has_captured_checker(const Move *move) {
+    return move->cc > 0 && move->cr > 0;
+}
+
+int should_promote_to_king(int size, Cell from, int to_row) {
+    if (is_king(from)) return 0;
+
+    if (cell_belongs_to_color(from, WHITE)) {
+        return to_row == 0;
+    }
+
+    return to_row == size - 1;
+}
+
+
+void apply_move(Position *pos,const Move *move) {
+    Cell from = pos->cells[move->fr][move->fc];
+    pos->cells[move->fr][move->fc] = CELL_EMPTY;
+    pos->to_move = !pos->to_move;
+
+    if (has_captured_checker(move)) {
+        pos->cells[move->cr][move->cc] = CELL_EMPTY;
+        pos->count[pos->to_move]--;
+        pos->no_progress = 0;
+    } else {
+        pos->no_progress++;
+    }
+    pos->cells[move->tr][move->tc] = from;
+
+    if (should_promote_to_king(pos->size, from, move->tr)){
+        pos->cells[move->tr][move->tc] = cell_belongs_to_color(from, WHITE) ? CELL_WHITE_KING : CELL_BLACK_KING;
+        pos->no_progress = 0;
+    }
+}
 
 void print_board(Game *game) {
     int row, col, i;
@@ -333,3 +364,4 @@ void print_board(Game *game) {
         }
     }
 }
+
